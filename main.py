@@ -101,4 +101,4 @@ if __name__ == "__main__":
     print_report(tickers)
 
     # 過去日付レポート例
-    # print_report(tickers, report_date="2024-08-05")
+    print_report(tickers, report_date="2024-08-05")

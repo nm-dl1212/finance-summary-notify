@@ -242,15 +242,15 @@ if __name__ == "__main__":
     
     plot_price_history(
         ticker=ticker,
-        years=30,
+        years=10,
         output_file=f"price.png",
     ) 
 
     df_dca = backtest_dip(
         ticker=ticker,
-        monthly_investment=20_000,
+        monthly_investment=10_000,
         years=5,
-        end_date="2009-12-31",
+        end_date="2025-12-31",
         dip_levels=None,  # 単純積み立て
     )
 
@@ -258,10 +258,10 @@ if __name__ == "__main__":
         ticker=ticker,
         monthly_investment=0,
         years=5,
-        end_date="2009-12-31",
+        end_date="2025-12-31",
         dip_levels=[
-            (-10, 100_000),
-            (-20, 200_000),
+            (-10, 150_000),
+            (-20, 300_000),
         ],
     )
 
