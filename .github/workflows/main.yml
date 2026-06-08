@@ -1,0 +1,32 @@
+name: Run main.py on schedule
+
+on:
+  schedule:
+    # 08:45 JST = 23:45 UTC on the previous day.
+    # JST weekdays Mon-Fri correspond to UTC Sun-Thu at 23:45.
+    - cron: "45 23 * * 0-4"
+  workflow_dispatch:
+
+jobs:
+  run-main:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Run main.py
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: uv run python main.py
