@@ -6,5 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "matplotlib>=3.10.9",
+    "python-dotenv>=1.2.2",
+    "slack-sdk",
     "yfinance>=1.4.1",
 ]

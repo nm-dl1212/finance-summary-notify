@@ -1,9 +1,13 @@
-import pandas as pd
-import yfinance as yf
+import os
 from datetime import datetime
 
+import pandas as pd
+import yfinance as yf
+from dotenv import load_dotenv
+from slack_sdk.webhook import WebhookClient
 
-def get_report(symbol, report_date=None):
+
+def get_result(symbol, report_date=None):
     """
     report_date:
         None -> 最新日時点
@@ -16,7 +20,7 @@ def get_report(symbol, report_date=None):
     if hist.empty:
         return None
 
-    # タイムゾーンをローカルに変換    
+    # タイムゾーンをローカルに変換
     hist.index = hist.index.tz_localize(None)
 
     # レポート日付が与えられている場合は、その日付までのデータに変換
@@ -27,7 +31,7 @@ def get_report(symbol, report_date=None):
     # データが2行未満の場合
     if len(hist) < 2:
         return None
-    
+
     # 出来高0の場合は除く
     hist = hist[hist["Volume"] > 0]
 
@@ -47,43 +51,133 @@ def get_report(symbol, report_date=None):
     ath_pct = (current - ath) / ath * 100
     high_52w_pct = (current - high_52w) / high_52w * 100
 
-
     return {
-        "current": current,
-        "diff_pct": diff_pct,
-        "ath": ath,
-        "ath_pct": ath_pct,
-        "high_52w": high_52w,
-        "high_52w_pct": high_52w_pct,
+        "symbol": symbol,
+        "date": hist.index[-1].strftime("%Y-%m-%d"),
+        "current": float(current),
+        "prev": float(prev),
+        "ath": float(ath),
+        "high_52w": float(high_52w),
+        "diff_percentage": float(diff_pct),
+        "ath_percentage": float(ath_pct),
+        "high_52w_percentage": float(high_52w_pct),
     }
 
 
-def print_report(tickers, report_date=None):
+def _annotate_change(value):
+    if value >= 20:
+        return f"🚀 {value:+.2f}%"
+    if value >= 10:
+        return f"🔥 {value:+.2f}%"
+    if value >= 3:
+        return f"🌞 {value:+.2f}%"
+    if value >= 0:
+        return f"↗️ {value:+.2f}%"
+    if value >= -3:
+        return f"↘️ {value:+.2f}%"
+    if value >= -10:
+        return f"☔ {value:+.2f}%"
+    if value  >= -20:
+        return f"⛈️ {value:+.2f}%"
+    return f"💥 {value:+.2f}%"
 
-    if report_date is None:
-        title_date = datetime.now().strftime("%Y-%m-%d")
-    else:
-        title_date = str(pd.Timestamp(report_date).date())
 
-    print(f"=== 株価レポート {title_date} ===")
+def format_summary_report(results):
+    if not results:
+        return "# 株価レポート\n\nデータ取得に成功した銘柄がありません。"
 
-    for name, symbol in tickers.items():
+    lines = ["# 株価レポート", ""]
 
-        result = get_report(symbol, report_date)
+    headers = ["銘柄", "コード", "現在値", "前日比", "最高値比", "52w高値比"]
+    rows = []
 
+    for result in results:
         if result is None:
-            print(f"{name}: データ取得失敗")
+            rows.append(["データ取得失敗", "-", "-", "-", "-"])
             continue
 
-        print(
-            f"{name}: {symbol} \n"
-            f"* 現在価格 {result['current']:.2f} \n"
-            f"* 最高値 {result['ath']:.2f} \n"
-            f"* 52週間高値 {result['high_52w']:.2f} \n"
-            f"* 前日比 {result['diff_pct']:+.2f}% \n"
-            f"* ATH比 {result['ath_pct']:+.2f}% \n"
-            f"* 52週間高比 {result['high_52w_pct']:+.2f}% \n"
+        rows.append(
+            [
+                f"`{result.get('name', '')}`", 
+                f"`{result.get('symbol', '')}`",
+                f"`{result['current']:.2f}`",
+                f"`{_annotate_change(result['diff_percentage'])}`",
+                f"`{_annotate_change(result['ath_percentage'])}`",
+                f"`{_annotate_change(result['high_52w_percentage'])}`",
+            ]
         )
+
+    lines.append("| " + " | ".join(headers) + " |")
+    lines.append("| " + " | ".join(["---"] * len(headers)) + " |")
+
+    for row in rows:
+        lines.append("| " + " | ".join(row) + " |")
+
+    return "\n".join(lines)
+
+
+def build_summary_blocks(results):
+    table_rows = []
+
+    for result in results:
+        if result is None:
+            table_rows.append(
+                [
+                    {"type": "raw_text", "text": "データ取得失敗"},
+                    {"type": "raw_text", "text": "-"},
+                    {"type": "raw_text", "text": "-"},
+                    {"type": "raw_text", "text": "-"},
+                    {"type": "raw_text", "text": "-"},
+                    {"type": "raw_text", "text": "-"},
+                ]
+            )
+            continue
+
+        table_rows.append(
+            [
+                {
+                    "type": "raw_text",
+                    "text": f"{result.get('name', '')}"
+                },
+                {"type": "raw_text", "text": f"{result.get('symbol', '')}"},
+                {"type": "raw_text", "text": f"{result['current']:.2f}"},
+                {"type": "raw_text", "text": _annotate_change(result['diff_percentage'])},
+                {"type": "raw_text", "text": _annotate_change(result['ath_percentage'])},
+                {"type": "raw_text", "text": _annotate_change(result['high_52w_percentage'])},
+            ]
+        )
+
+    return [
+        {
+            "type": "header",
+            "text": {
+                "type": "plain_text",
+                "text": "株価レポート",
+            },
+        },
+        {
+            "type": "table",
+            "column_settings": [
+                {"is_wrapped": True},
+                {"align": "right"},
+                {"align": "right"},
+                {"align": "right"},
+                {"align": "right"},
+                {"align": "right"},
+            ],
+            "rows": [
+                [
+                    {"type": "raw_text", "text": "銘柄"},
+                    {"type": "raw_text", "text": "コード"},
+                    {"type": "raw_text", "text": "現在値"},
+                    {"type": "raw_text", "text": "前日比"},
+                    {"type": "raw_text", "text": "最高値比"},
+                    {"type": "raw_text", "text": "52w高値比"},
+                ],
+                *table_rows,
+            ],
+        },
+    ]
 
 
 if __name__ == "__main__":
@@ -97,8 +191,37 @@ if __name__ == "__main__":
         # "東京エレクトロン": "8035.T"
     }
 
-    # 最新レポート
-    print_report(tickers)
+    now_date = datetime.now().strftime("%Y-%m-%d")
 
-    # 過去日付レポート例
-    print_report(tickers, report_date="2024-08-05")
+    # 各銘柄のレポートを取得してまとめる
+    results = []
+    for name, symbol in tickers.items():
+        result = get_result(symbol, now_date)
+
+        if result is None:
+            results.append(None)
+            continue
+
+        result["name"] = name
+        results.append(result)
+
+    # レポート形式にフォーマット
+    report = format_summary_report(results)
+    blocks = build_summary_blocks(results)
+    print(report)
+
+    load_dotenv()
+    webhook_url = os.getenv("SLACK_WEBHOOK_URL")
+
+    # Slackに送信
+    if webhook_url:
+        webhook = WebhookClient(webhook_url)
+        response = webhook.send(
+            text=report,
+            blocks=blocks,
+        )
+        if response.status_code == 200:
+            print("レポートをSlackに送信しました。")
+        else:
+            print(f"レポートの送信に失敗しました。ステータスコード: {response.status_code}")
+            print(response.body)
