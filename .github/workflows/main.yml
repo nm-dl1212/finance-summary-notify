@@ -4,8 +4,7 @@ on:
   schedule:
     # 08:45 JST = 23:45 UTC on the previous day.
     # JST weekdays Mon-Fri correspond to UTC Sun-Thu at 23:45.
-    - cron: "45 23 * * 0-4"
-  workflow_dispatch:
+    - cron: "*/5 * * * 1-5"
 
 jobs:
   run-main:
