@@ -35,8 +35,22 @@ uv sync
 `main.py` を実行すると、`main.py` 内で定義されたティッカーについてレポートを取得し、`summary` として整形した結果を標準出力に表示します。
 
 ```bash
-uv run python main.py
+uv run main.py
 ```
+
+cron で定期実行したい場合は、リポジトリ直下のラッパーを使うと安定します。
+
+```bash
+bash scripts/run_main.sh
+```
+
+例: 毎日 9:00 に実行してログを残す場合
+
+```cron
+0 9 * * * /path/to/uv run /path/to/main.py 
+```
+
+`uv` のパスが cron から見えない場合は、`which uv` で確認した絶対パスに置き換えてください。
 
 出力内容:
 - 現在価格
