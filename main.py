@@ -9,10 +9,11 @@ from slack_sdk.webhook import WebhookClient
 
 def get_result(symbol, report_date=None):
     """
-    report_date:
-        None -> 最新日時点
-        "2024-08-05" のような文字列
-        datetime オブジェクト
+    銘柄ごとに株価情報を取得する関数。
+    終値ベースで、前日比、最高値 (ATH) 比、52週間高値比を計算する。
+    :param symbol: 銘柄コード
+    :param report_date: レポート日付（オプション）
+    :return: 銘柄の情報を含む辞書
     """
 
     hist = yf.Ticker(symbol).history(period="max", auto_adjust=False)
@@ -64,61 +65,34 @@ def get_result(symbol, report_date=None):
     }
 
 
-def _annotate_change(value):
-    if value >= 20:
-        return f"🚀 {value:+.2f}%"
-    if value >= 10:
-        return f"🔥 {value:+.2f}%"
-    if value >= 3:
-        return f"🌞 {value:+.2f}%"
-    if value >= 0:
-        return f"↗️ {value:+.2f}%"
-    if value >= -3:
-        return f"↘️ {value:+.2f}%"
-    if value >= -10:
-        return f"☔ {value:+.2f}%"
-    if value  >= -20:
-        return f"⛈️ {value:+.2f}%"
-    return f"💥 {value:+.2f}%"
+def build_blocks(results):
+    """
+    Slack送信用に、株価情報をテーブル形式のブロックに変換する関数。
+    :param results: 銘柄ごとの株価情報のリスト
+    :return: Slackのブロック形式のリスト
+    """
 
-
-def format_summary_report(results):
-    if not results:
-        return "# 株価レポート\n\nデータ取得に成功した銘柄がありません。"
-
-    lines = ["# 株価レポート", ""]
-
-    headers = ["銘柄", "コード", "現在値", "前日比", "最高値比", "52w高値比"]
-    rows = []
-
-    for result in results:
-        if result is None:
-            rows.append(["データ取得失敗", "-", "-", "-", "-"])
-            continue
-
-        rows.append(
-            [
-                f"`{result.get('name', '')}`", 
-                f"`{result.get('symbol', '')}`",
-                f"`{result['current']:.2f}`",
-                f"`{_annotate_change(result['diff_percentage'])}`",
-                f"`{_annotate_change(result['ath_percentage'])}`",
-                f"`{_annotate_change(result['high_52w_percentage'])}`",
-            ]
-        )
-
-    lines.append("| " + " | ".join(headers) + " |")
-    lines.append("| " + " | ".join(["---"] * len(headers)) + " |")
-
-    for row in rows:
-        lines.append("| " + " | ".join(row) + " |")
-
-    return "\n".join(lines)
-
-
-def build_summary_blocks(results):
+    def _annotate_change(value):
+        """
+        株価の変化率に応じて、絵文字を付与するヘルパー関数。
+        """
+        if value >= 20:
+            return f"🚀 {value:+.2f}%"
+        if value >= 10:
+            return f"🔥 {value:+.2f}%"
+        if value >= 3:
+            return f"🌞 {value:+.2f}%"
+        if value >= 0:
+            return f"↗️ {value:+.2f}%"
+        if value >= -3:
+            return f"↘️ {value:+.2f}%"
+        if value >= -10:
+            return f"☔ {value:+.2f}%"
+        if value  >= -20:
+            return f"⛈️ {value:+.2f}%"
+        return f"💥 {value:+.2f}%"
+    
     table_rows = []
-
     for result in results:
         if result is None:
             table_rows.append(
@@ -135,15 +109,12 @@ def build_summary_blocks(results):
 
         table_rows.append(
             [
-                {
-                    "type": "raw_text",
-                    "text": f"{result.get('name', '')}"
-                },
+                {"type": "raw_text", "text": f"{result.get('name', '')}"},
                 {"type": "raw_text", "text": f"{result.get('symbol', '')}"},
-                {"type": "raw_text", "text": f"{result['current']:.2f}"},
                 {"type": "raw_text", "text": _annotate_change(result['diff_percentage'])},
                 {"type": "raw_text", "text": _annotate_change(result['ath_percentage'])},
                 {"type": "raw_text", "text": _annotate_change(result['high_52w_percentage'])},
+                {"type": "raw_text", "text": f"{result['current']:.2f}"},
             ]
         )
 
@@ -169,10 +140,10 @@ def build_summary_blocks(results):
                 [
                     {"type": "raw_text", "text": "銘柄"},
                     {"type": "raw_text", "text": "コード"},
-                    {"type": "raw_text", "text": "現在値"},
                     {"type": "raw_text", "text": "前日比"},
                     {"type": "raw_text", "text": "最高値比"},
                     {"type": "raw_text", "text": "52w高値比"},
+                    {"type": "raw_text", "text": "現在値"},
                 ],
                 *table_rows,
             ],
@@ -183,9 +154,9 @@ def build_summary_blocks(results):
 if __name__ == "__main__":
 
     tickers = {
-        "S&P500 (iシェアーズ S&P500 米国株 ETF)": "1655.T",
-        "オルカン (iShares MSCI ACWI ETF)": "ACWI",
-        "TOPIX (iShares Core TOPIX ETF) ": "1475.T",
+        "S&P500": "1655.T",
+        "オルカン": "ACWI",
+        "TOPIX": "1475.T",
         # "トヨタ": "7203.T",
         # "三菱重工": "7011.T",
         # "東京エレクトロン": "8035.T"
@@ -206,9 +177,7 @@ if __name__ == "__main__":
         results.append(result)
 
     # レポート形式にフォーマット
-    report = format_summary_report(results)
-    blocks = build_summary_blocks(results)
-    print(report)
+    blocks = build_blocks(results)
 
     load_dotenv()
     webhook_url = os.getenv("SLACK_WEBHOOK_URL")
@@ -217,7 +186,7 @@ if __name__ == "__main__":
     if webhook_url:
         webhook = WebhookClient(webhook_url)
         response = webhook.send(
-            text=report,
+            text="株式サマリー",
             blocks=blocks,
         )
         if response.status_code == 200:
